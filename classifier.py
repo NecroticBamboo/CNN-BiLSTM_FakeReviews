@@ -36,9 +36,6 @@ YelpDatasetLink = "Datasets/review_data.csv"
 RestaurantDatasetLink = "Datasets/restaurant_reviews_anonymized.csv"
 HotelDatasetLink = "Datasets\op_spam_v1.4"
 
-# max length for sequence
-maxlen = 120
-
 # Uncomment this call when using matplotlib to generate images
 # rather than displaying interactive UI.
 #import matplotlib
@@ -243,33 +240,42 @@ def quote(s):
 
 # =====================================================================
 
+def get_data_for_tokenizer_fit(dataSet):
+    for texts in [x[0] for x in dataSet]:
+        for text in texts:
+            yield text
+    for texts in [x[1] for x in dataSet]:
+        for text in texts:
+            yield text
 
-def splitData(testPercentage, dataSet):
-    
-    # Use the last column as the target value
-    X, y = [x[0] for x in preprocessedAmazonData], [x[1] for x in preprocessedAmazonData]
-    
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=testPercentage)
-
-    return X_train, X_test, y_train, y_test
-
-def tokeniseData(trainData, testData):
-    
+def tokeniseData(dataSet):
     
     # vectorize text corpus into integers. Max size of vocabulary: 7000
     tokenizer = Tokenizer(num_words=7000)
-    tokenizer.fit_on_texts(trainData)
+    tokenizer.fit_on_texts( get_data_for_tokenizer_fit(dataSet) )
     
-    Tokenised_train = pad_sequences(tokenizer.texts_to_sequences(trainData),padding='post', maxlen=maxlen)
-    Tokenised_test = pad_sequences(tokenizer.texts_to_sequences(testData), padding='post', maxlen=maxlen)
+    words = [x[0] for x in dataSet]
+    seq = tokenizer.texts_to_sequences(words)
     
-    vocab_size = len(tokenizer.word_index) + 1  # Adding 1 because of reserved 0 index
+    max_length = max([len(s) for s in seq])
+    
+    tokenisedData = pad_sequences(seq,padding='post', maxlen=max_length)
+    
+    words = [x[1] for x in dataSet]
+    seq = tokenizer.texts_to_sequences(words)
 
+    vocab_size = len(tokenizer.word_index) + 1  # Adding 1 because of reserved 0 index
+    
     # print(X_train[2])
     # print(Tokenised_train[2])
     
-    return Tokenised_train, Tokenised_test, vocab_size
+    return tokenisedData, seq, vocab_size
  
+def splitData(testPercentage, data, labels):
+    
+    # Use the last column as the target value
+    X_train, X_test, y_train, y_test = train_test_split(data, labels, test_size=testPercentage)
+    return X_train, X_test, y_train, y_test
 
    
 def get_features_and_labels(frame):
@@ -461,7 +467,6 @@ if __name__ == '__main__':
     loadData(AmazonDatasetLink, rawAmazonData, preprocessedAmazonData, '\t')
     
     #print(preprocessedAmazonData[0])
-    print("----------------------------")
 
     # Download the Yelp data set from txt file and preprocess it
     # rawYelpData = []
@@ -495,13 +500,14 @@ if __name__ == '__main__':
     # print("----------------------------")
 
     # Process data into feature and label arrays
-    X_train, X_test, y_train, y_test = splitData(0.2, preprocessedAmazonData)
+
+    tokenisedData, tokenisedLabels, vocab_size = tokeniseData(preprocessedAmazonData)
     
-    tokenised_train, tokenised_test, vocab_size = tokeniseData(X_train,X_test)
+    X_train, X_test, y_train, y_test = splitData(0.2, tokenisedData, tokenisedLabels)
 
     model = createModel(vocab_size)
     
-    model.fit(tokenised_train, y_train, epochs=10, verbose=2)
+    model.fit(tf.convert_to_tensor(X_train), y_train, epochs=10, verbose=2)
 
     
     # print("Processing {} samples with {} attributes".format(len(frame.index), len(frame.columns)))
