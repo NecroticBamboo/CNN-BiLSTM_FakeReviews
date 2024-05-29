@@ -51,12 +51,14 @@ import re
 import os
 
 import tensorflow as tf
-from tensorflow.keras import layers, models
-# from tensorflow import ops
-from tensorflow.keras.preprocessing.text import Tokenizer
-from tensorflow.keras.preprocessing.sequence import pad_sequences
+# from tf.keras import layers, models
+# from tf.keras.preprocessing.text import Tokenizer
+# from tf.keras.preprocessing.sequence import pad_sequences
 
 import nltk
+# nltk.download('punkt')
+# nltk.download('stopwords')
+
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from sklearn.model_selection import train_test_split
@@ -126,14 +128,18 @@ def download_data():
     # Return the entire frame
     return frame
 
-def loadData(path, rawData, preprocessedData, separator):
+def loadData(path, separator):
+    preprocessedData = []
+    labels = []
+    
     with open(path, encoding='utf-8') as f:
         reader = csv.reader(f, delimiter = separator)
         (labelIndex, textIndex) = getLinesIndexes(reader)
         for line in reader:
             (Text, Label) = parseReview(line, labelIndex, textIndex)
-            rawData.append((Text,Label))
-            preprocessedData.append((preProcessText(Text),Label))
+            preprocessedData.append(preProcessText(Text))
+            labels.append(Label)
+    return preprocessedData, labels
             
 
 def prepareHotelData(rawData, preprocessedData):
@@ -173,12 +179,11 @@ def getLinesIndexes(reader):
     return (labelIndex, textIndex)
 
 def parseReview(reviewLine, labelIndex, textIndex):
-    s=""
     if reviewLine[labelIndex]=="__label1__" or reviewLine[labelIndex]==0 or reviewLine[labelIndex]=="fake":
-        s = "Fake"
+        trust = 0 # "Fake"
     else: 
-        s = "Real"
-    return (reviewLine[textIndex], s)
+        trust = 1 # "Real"
+    return (reviewLine[textIndex], trust)
 
 def preProcessText(reviewText):
     tokens = word_tokenize(reviewText)
@@ -240,41 +245,71 @@ def quote(s):
 
 # =====================================================================
 
-def get_data_for_tokenizer_fit(dataSet):
-    for texts in [x[0] for x in dataSet]:
-        for text in texts:
-            yield text
-    for texts in [x[1] for x in dataSet]:
-        for text in texts:
-            yield text
+def prepare_data(filePath):
+    dataPath = "Datasets/."
+    if os.path.isfile(dataPath+"X_train.dat.npy") and \
+       os.path.isfile(dataPath+"X_test.dat.npy") and \
+       os.path.isfile(dataPath+"y_train.dat.npy") and \
+       os.path.isfile(dataPath+"y_test.dat.npy") and \
+       os.path.isfile(dataPath+"vocab_size.dat"):
+        
+        print(f"Loading data from cache: {dataPath}")
+        X_train = np.array(np.load(dataPath+'X_train.dat.npy',allow_pickle=True), dtype='int')
+        X_test  = np.array(np.load(dataPath+'X_test.dat.npy', allow_pickle=True), dtype='int')
+        y_train = np.array(np.load(dataPath+'y_train.dat.npy',allow_pickle=True), dtype='int')
+        y_test  = np.array(np.load(dataPath+'y_test.dat.npy', allow_pickle=True), dtype='int')
+        vocab_size = np.fromfile(dataPath+'vocab_size.dat', dtype=int)[0]
+        
+    else:
+        print(f"Loading data from {filePath}")
+        preprocessedAmazonData, labels = loadData(filePath, '\t')
+
+        tokenisedData, vocab_size = tokeniseData(preprocessedAmazonData)
+    
+        X_train, X_test, y_train, y_test = splitData(0.2, tokenisedData, labels)
+
+        np.array([vocab_size]).tofile(dataPath+'vocab_size.dat')
+        np.save(dataPath+'X_train.dat', np.array(X_train, dtype='object'), allow_pickle=True)
+        np.save(dataPath+'X_test.dat' , np.array(X_test , dtype='object'), allow_pickle=True)
+        np.save(dataPath+'y_train.dat', np.array(y_train, dtype='object'), allow_pickle=True)
+        np.save(dataPath+'y_test.dat' , np.array(y_test , dtype='object'), allow_pickle=True)    
+
+    print(f"Vocabulary suze: {vocab_size}, Sentence length: {len(X_train[0])}, Train set size: {len(X_train)}, Test set size: {len(X_test)}")
+    return X_train, X_test, y_train, y_test, vocab_size
+
 
 def tokeniseData(dataSet):
     
     # vectorize text corpus into integers. Max size of vocabulary: 7000
-    tokenizer = Tokenizer(num_words=7000)
+    tokenizer =  tf.keras.preprocessing.text.Tokenizer(num_words=7000)
     tokenizer.fit_on_texts( get_data_for_tokenizer_fit(dataSet) )
     
-    words = [x[0] for x in dataSet]
-    seq = tokenizer.texts_to_sequences(words)
+    seq = tokenizer.texts_to_sequences(dataSet)
     
     max_length = max([len(s) for s in seq])
     
-    tokenisedData = pad_sequences(seq,padding='post', maxlen=max_length)
+    tokenisedData = tf.keras.preprocessing.sequence.pad_sequences(seq,padding='post', maxlen=max_length)
     
-    words = [x[1] for x in dataSet]
-    seq = tokenizer.texts_to_sequences(words)
-
     vocab_size = len(tokenizer.word_index) + 1  # Adding 1 because of reserved 0 index
-    
-    # print(X_train[2])
-    # print(Tokenised_train[2])
-    
-    return tokenisedData, seq, vocab_size
+
+    return tokenisedData, vocab_size
  
+def get_data_for_tokenizer_fit(dataSet):
+    for sentence in dataSet:
+        for word in sentence:
+            yield word
+
 def splitData(testPercentage, data, labels):
     
     # Use the last column as the target value
     X_train, X_test, y_train, y_test = train_test_split(data, labels, test_size=testPercentage)
+    
+    X_train = np.array(X_train, dtype='int')
+    X_test  = np.array(X_test , dtype='int')
+    y_train = np.array(y_train, dtype='int')
+    y_test  = np.array(y_test , dtype='int')
+
+    # print("X_train={}, X_test={}, y_train={}, y_test={}".format(len(X_train), len(X_test), len(y_train), len(y_test)))
     return X_train, X_test, y_train, y_test
 
    
@@ -331,20 +366,22 @@ def get_features_and_labels(frame):
 # =====================================================================
 
 
-def createModel(vocab_size):
+def createModel(vocab_size, max_len):
     # define model
-
-
-    model = models.Sequential()
-    model.add(layers.Embedding(vocab_size, 100))
-    model.add(layers.Conv1D(filters=32, kernel_size=8, activation='relu'))
-    model.add(layers.MaxPooling1D(pool_size=2))
-    model.add(layers.Flatten())
-    model.add(layers.Dense(10, activation='relu'))
-    model.add(layers.Dense(1, activation='sigmoid'))
+    
+    model = tf.keras.models.Sequential()
+    
+    model.add(tf.keras.layers.Input(shape=(max_len,)))
+    model.add(tf.keras.layers.Embedding(input_dim=vocab_size, output_dim=100))
+    model.add(tf.keras.layers.Conv1D(filters=32, kernel_size=8, activation='relu'))
+    model.add(tf.keras.layers.MaxPooling1D(pool_size=2))
+    model.add(tf.keras.layers.Flatten())
+    model.add(tf.keras.layers.Dense(10, activation='relu'))
+    model.add(tf.keras.layers.Dense(1, activation='sigmoid'))
     model.compile(optimizer='adam',
               loss='binary_crossentropy',
               metrics=['accuracy'])
+
     model.summary()
     
     return model
@@ -455,16 +492,11 @@ def plot(results):
     # Closing the figure allows matplotlib to release the memory used.
     plt.close()
 
-
 # =====================================================================
 
 
 if __name__ == '__main__':
     # Download the amazon data set from txt file and preprocess it
-    rawAmazonData = []
-    preprocessedAmazonData = []
-    print("Downloading amazon data from {}".format(AmazonDatasetLink))
-    loadData(AmazonDatasetLink, rawAmazonData, preprocessedAmazonData, '\t')
     
     #print(preprocessedAmazonData[0])
 
@@ -501,14 +533,15 @@ if __name__ == '__main__':
 
     # Process data into feature and label arrays
 
-    tokenisedData, tokenisedLabels, vocab_size = tokeniseData(preprocessedAmazonData)
+    X_train, X_test, y_train, y_test, vocab_size = prepare_data(AmazonDatasetLink)
     
-    X_train, X_test, y_train, y_test = splitData(0.2, tokenisedData, tokenisedLabels)
-
-    model = createModel(vocab_size)
+    model = createModel(vocab_size, len(X_train[0]))
     
-    model.fit(tf.convert_to_tensor(X_train), y_train, epochs=10, verbose=2)
-
+    model.fit(X_train, y_train, epochs=10, verbose=2)
+    model.save('Models/model1.keras')  # The file needs to end with the .keras extension
+    
+    loss, acc = model.evaluate(X_test, y_test, verbose=0)
+    print('Test Accuracy: %f' % (acc*100))
     
     # print("Processing {} samples with {} attributes".format(len(frame.index), len(frame.columns)))
     # X_train, X_test, y_train, y_test = get_features_and_labels(frame)
