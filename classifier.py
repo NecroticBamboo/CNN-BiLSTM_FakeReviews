@@ -49,6 +49,7 @@ import csv
 import string
 import re
 import os
+import pickle
 
 import tensorflow as tf
 # from tf.keras import layers, models
@@ -61,6 +62,8 @@ import nltk
 
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
+
 from sklearn.model_selection import train_test_split
 
 try:
@@ -201,6 +204,10 @@ def preProcessText(reviewText):
     # filter out stop words
     stop_words = set(stopwords.words('english'))
     words = [w for w in words if not w in stop_words]
+    
+    # Convert words to basic form
+    lemmatizer = WordNetLemmatizer()
+    words = [lemmatizer.lemmatize(word) for word in words]
 
     return words
 
@@ -246,7 +253,7 @@ def quote(s):
 # =====================================================================
 
 def prepare_data(filePath):
-    dataPath = "Datasets/."
+    dataPath = "Models/"
     if os.path.isfile(dataPath+"X_train.dat.npy") and \
        os.path.isfile(dataPath+"X_test.dat.npy") and \
        os.path.isfile(dataPath+"y_train.dat.npy") and \
@@ -276,6 +283,25 @@ def prepare_data(filePath):
 
     print(f"Vocabulary suze: {vocab_size}, Sentence length: {len(X_train[0])}, Train set size: {len(X_train)}, Test set size: {len(X_test)}")
     return X_train, X_test, y_train, y_test, vocab_size
+
+def prepare_model(dataPath, vocab_size, X_train, y_train, X_test, y_test):
+    if os.path.isfile(dataPath+"model1.keras"):
+        model = tf.keras.models.load_model(dataPath+"model1.keras")
+        
+        with open(dataPath+'trainHistoryDict', 'rb') as file_pi:
+            history = pickle.load(file_pi)
+            
+    else:
+        model = createModel(vocab_size, len(X_train[0]))
+        history = model.fit(X_train, y_train, epochs=10, verbose=2, validation_data=(X_test, y_test)).history
+        
+        model.save(dataPath+'model1.keras')  # The file needs to end with the .keras extension
+        
+        with open(dataPath+'trainHistoryDict', 'wb') as file_pi:
+            pickle.dump(history, file_pi)
+
+        
+    return model, history
 
 
 def tokeniseData(dataSet):
@@ -369,15 +395,30 @@ def get_features_and_labels(frame):
 def createModel(vocab_size, max_len):
     # define model
     
+    # CNN-BiLSTM???
     model = tf.keras.models.Sequential()
-    
     model.add(tf.keras.layers.Input(shape=(max_len,)))
     model.add(tf.keras.layers.Embedding(input_dim=vocab_size, output_dim=100))
-    model.add(tf.keras.layers.Conv1D(filters=32, kernel_size=8, activation='relu'))
-    model.add(tf.keras.layers.MaxPooling1D(pool_size=2))
-    model.add(tf.keras.layers.Flatten())
+    # model.add(tf.keras.layers.Dropout(0.2))
+    # model.add(tf.keras.layers.Conv1D(filters=32, kernel_size=8, activation='relu'))
+    
+    model.add(tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(20, return_sequences=False)))
+    
     model.add(tf.keras.layers.Dense(10, activation='relu'))
     model.add(tf.keras.layers.Dense(1, activation='sigmoid'))
+    
+    
+    # CNN
+    # model = tf.keras.models.Sequential()
+    # model.add(tf.keras.layers.Input(shape=(max_len,)))
+    # model.add(tf.keras.layers.Embedding(input_dim=vocab_size, output_dim=100))
+    # model.add(tf.keras.layers.Conv1D(filters=32, kernel_size=8, activation='relu'))
+    # model.add(tf.keras.layers.MaxPooling1D(pool_size=2))
+    # model.add(tf.keras.layers.Flatten())
+    # model.add(tf.keras.layers.Dense(10, activation='relu'))
+    # model.add(tf.keras.layers.Dense(1, activation='sigmoid'))
+    
+
     model.compile(optimizer='adam',
               loss='binary_crossentropy',
               metrics=['accuracy'])
@@ -492,6 +533,18 @@ def plot(results):
     # Closing the figure allows matplotlib to release the memory used.
     plt.close()
 
+def plot(history):
+    # list all data in history
+    print(history.keys())
+    # summarize history for accuracy
+    plt.plot(history['accuracy'])
+    plt.plot(history['val_accuracy'])
+    plt.title('model accuracy')
+    plt.ylabel('accuracy')
+    plt.xlabel('epoch')
+    plt.legend(['train', 'test'], loc='upper left')
+    plt.show()
+
 # =====================================================================
 
 
@@ -535,14 +588,13 @@ if __name__ == '__main__':
 
     X_train, X_test, y_train, y_test, vocab_size = prepare_data(AmazonDatasetLink)
     
-    model = createModel(vocab_size, len(X_train[0]))
-    
-    model.fit(X_train, y_train, epochs=10, verbose=2)
-    model.save('Models/model1.keras')  # The file needs to end with the .keras extension
+    model, history = prepare_model("Models/",vocab_size,X_train,y_train,X_test,y_test)
     
     loss, acc = model.evaluate(X_test, y_test, verbose=0)
     print('Test Accuracy: %f' % (acc*100))
     
+    plot(history)
+
     # print("Processing {} samples with {} attributes".format(len(frame.index), len(frame.columns)))
     # X_train, X_test, y_train, y_test = get_features_and_labels(frame)
 
