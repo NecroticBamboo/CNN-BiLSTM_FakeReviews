@@ -140,12 +140,15 @@ def loadData(path, separator):
         (labelIndex, textIndex) = getLinesIndexes(reader)
         for line in reader:
             (Text, Label) = parseReview(line, labelIndex, textIndex)
+            
             preprocessedData.append(preProcessText(Text))
             labels.append(Label)
     return preprocessedData, labels
             
 
-def prepareHotelData(rawData, preprocessedData):
+def prepareHotelData():
+    preprocessedData = []
+    labels = []
     for subdir, dirs, files in os.walk(HotelDatasetLink):
         for file in files:
             f=open(os.path.join(subdir,file),'r')
@@ -154,14 +157,14 @@ def prepareHotelData(rawData, preprocessedData):
             
             labelDirName = subdir.split('\\')[3]
             labelName = labelDirName.split('_')[0]
-            label = ""
-            if labelName == "deceptful":
-                label = "Fake"
+            if labelName == "deceptive":
+                trust = 0
             else:
-                label = "Real"
+                trust = 1
                 
-            rawData.append((text,label))
-            preprocessedData.append((preProcessText(text),label))
+            preprocessedData.append((preProcessText(text)))
+            labels.append(trust)
+    return preprocessedData, labels
 
 def getLinesIndexes(reader):
     columnNames = next(reader)
@@ -178,11 +181,11 @@ def getLinesIndexes(reader):
         raise Exception("Label index wasn't found")
     if textIndex == -1:
         raise Exception("Text index wasn't found")
-    
+
     return (labelIndex, textIndex)
 
 def parseReview(reviewLine, labelIndex, textIndex):
-    if reviewLine[labelIndex]=="__label1__" or reviewLine[labelIndex]==0 or reviewLine[labelIndex]=="fake":
+    if reviewLine[labelIndex]=="__label1__" or reviewLine[labelIndex]=="0" or reviewLine[labelIndex]=="fake":
         trust = 0 # "Fake"
     else: 
         trust = 1 # "Real"
@@ -252,52 +255,56 @@ def quote(s):
 
 # =====================================================================
 
-def prepare_data(filePath):
-    dataPath = "Models/"
-    if os.path.isfile(dataPath+"X_train.dat.npy") and \
-       os.path.isfile(dataPath+"X_test.dat.npy") and \
-       os.path.isfile(dataPath+"y_train.dat.npy") and \
-       os.path.isfile(dataPath+"y_test.dat.npy") and \
-       os.path.isfile(dataPath+"vocab_size.dat"):
+def prepare_data(saveFolderPath, filePath, separator):
+    if os.path.isfile(saveFolderPath+"X_train.dat.npy") and \
+       os.path.isfile(saveFolderPath+"X_test.dat.npy") and \
+       os.path.isfile(saveFolderPath+"y_train.dat.npy") and \
+       os.path.isfile(saveFolderPath+"y_test.dat.npy") and \
+       os.path.isfile(saveFolderPath+"vocab_size.dat"):
         
-        print(f"Loading data from cache: {dataPath}")
-        X_train = np.array(np.load(dataPath+'X_train.dat.npy',allow_pickle=True), dtype='int')
-        X_test  = np.array(np.load(dataPath+'X_test.dat.npy', allow_pickle=True), dtype='int')
-        y_train = np.array(np.load(dataPath+'y_train.dat.npy',allow_pickle=True), dtype='int')
-        y_test  = np.array(np.load(dataPath+'y_test.dat.npy', allow_pickle=True), dtype='int')
-        vocab_size = np.fromfile(dataPath+'vocab_size.dat', dtype=int)[0]
+        print(f"Loading data from cache: {saveFolderPath}")
+        X_train = np.array(np.load(saveFolderPath+'X_train.dat.npy',allow_pickle=True), dtype='int')
+        X_test  = np.array(np.load(saveFolderPath+'X_test.dat.npy', allow_pickle=True), dtype='int')
+        y_train = np.array(np.load(saveFolderPath+'y_train.dat.npy',allow_pickle=True), dtype='int')
+        y_test  = np.array(np.load(saveFolderPath+'y_test.dat.npy', allow_pickle=True), dtype='int')
+        vocab_size = np.fromfile(saveFolderPath+'vocab_size.dat', dtype=int)[0]
         
     else:
         print(f"Loading data from {filePath}")
-        preprocessedAmazonData, labels = loadData(filePath, '\t')
+        if separator == "files":
+            preprocessedData, labels = prepareHotelData()
+        elif separator == "tab":
+            preprocessedData, labels = loadData(filePath, '\t')
+        else:
+            preprocessedData, labels = loadData(filePath, separator)
 
-        tokenisedData, vocab_size = tokeniseData(preprocessedAmazonData)
+        tokenisedData, vocab_size = tokeniseData(preprocessedData)
     
         X_train, X_test, y_train, y_test = splitData(0.2, tokenisedData, labels)
 
-        np.array([vocab_size]).tofile(dataPath+'vocab_size.dat')
-        np.save(dataPath+'X_train.dat', np.array(X_train, dtype='object'), allow_pickle=True)
-        np.save(dataPath+'X_test.dat' , np.array(X_test , dtype='object'), allow_pickle=True)
-        np.save(dataPath+'y_train.dat', np.array(y_train, dtype='object'), allow_pickle=True)
-        np.save(dataPath+'y_test.dat' , np.array(y_test , dtype='object'), allow_pickle=True)    
+        np.array([vocab_size]).tofile(saveFolderPath+'vocab_size.dat')
+        np.save(saveFolderPath+'X_train.dat', np.array(X_train, dtype='object'), allow_pickle=True)
+        np.save(saveFolderPath+'X_test.dat' , np.array(X_test , dtype='object'), allow_pickle=True)
+        np.save(saveFolderPath+'y_train.dat', np.array(y_train, dtype='object'), allow_pickle=True)
+        np.save(saveFolderPath+'y_test.dat' , np.array(y_test , dtype='object'), allow_pickle=True)    
 
-    print(f"Vocabulary suze: {vocab_size}, Sentence length: {len(X_train[0])}, Train set size: {len(X_train)}, Test set size: {len(X_test)}")
+    print(f"Vocabulary size: {vocab_size}, Sentence length: {len(X_train[0])}, Train set size: {len(X_train)}, Test set size: {len(X_test)}")
     return X_train, X_test, y_train, y_test, vocab_size
 
-def prepare_model(dataPath, vocab_size, X_train, y_train, X_test, y_test):
-    if os.path.isfile(dataPath+"model1.keras"):
-        model = tf.keras.models.load_model(dataPath+"model1.keras")
+def prepare_model(saveFolderPath, vocab_size, X_train, y_train, X_test, y_test):
+    if os.path.isfile(saveFolderPath+"model1.keras"):
+        model = tf.keras.models.load_model(saveFolderPath+"model1.keras")
         
-        with open(dataPath+'trainHistoryDict', 'rb') as file_pi:
+        with open(saveFolderPath+'trainHistoryDict', 'rb') as file_pi:
             history = pickle.load(file_pi)
             
     else:
         model = createModel(vocab_size, len(X_train[0]))
         history = model.fit(X_train, y_train, epochs=10, verbose=2, validation_data=(X_test, y_test)).history
         
-        model.save(dataPath+'model1.keras')  # The file needs to end with the .keras extension
+        model.save(saveFolderPath+'model1.keras')  # The file needs to end with the .keras extension
         
-        with open(dataPath+'trainHistoryDict', 'wb') as file_pi:
+        with open(saveFolderPath+'trainHistoryDict', 'wb') as file_pi:
             pickle.dump(history, file_pi)
 
         
@@ -399,8 +406,9 @@ def createModel(vocab_size, max_len):
     model = tf.keras.models.Sequential()
     model.add(tf.keras.layers.Input(shape=(max_len,)))
     model.add(tf.keras.layers.Embedding(input_dim=vocab_size, output_dim=100))
-    # model.add(tf.keras.layers.Dropout(0.2))
-    # model.add(tf.keras.layers.Conv1D(filters=32, kernel_size=8, activation='relu'))
+    
+    model.add(tf.keras.layers.Conv1D(filters=32, kernel_size=8, activation='relu'))
+    model.add(tf.keras.layers.MaxPooling1D(pool_size=2))
     
     model.add(tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(20, return_sequences=False)))
     
@@ -549,51 +557,55 @@ def plot(history):
 
 
 if __name__ == '__main__':
-    # Download the amazon data set from txt file and preprocess it
     
-    #print(preprocessedAmazonData[0])
-
-    # Download the Yelp data set from txt file and preprocess it
-    # rawYelpData = []
-    # preprocessedYelpData = []
-    # print("Downloading Yelp data from {}".format(YelpDatasetLink))
-    
-    # Only run once
+    # Only run once before starting working with the program
     # convertYelpData
-    
-    # loadData(YelpDatasetLink, rawYelpData, preprocessedYelpData,',')
-    
-    # print(preprocessedYelpData[0])
-    # print("----------------------------")
 
-    # Download the restaurants data set from txt file and preprocess it
-    # rawRestaurantData = []
-    # preprocessedRestaurantData = []
-    # print("Downloading restaurants data from {}".format(RestaurantDatasetLink))
-    # loadData(RestaurantDatasetLink, rawRestaurantData, preprocessedRestaurantData, ',')
+    # Download the amazon data set from txt file and preprocess it
+    X_train, X_test, y_train, y_test, vocab_size = prepare_data("Models/Amazon/",AmazonDatasetLink,"tab")
     
-    # print(preprocessedRestaurantData[0])
-    # print("----------------------------")
-    
-    # Download the hotels data set from folders and preprocess it
-    # rawHotelData = []
-    # preprocessedHotelData = []
-    
-    # print("Downloading restaurants data from {}".format(HotelDatasetLink))
-    # prepareHotelData(rawHotelData,preprocessedHotelData)
-    # print(preprocessedHotelData[0])
-    # print("----------------------------")
-
-    # Process data into feature and label arrays
-
-    X_train, X_test, y_train, y_test, vocab_size = prepare_data(AmazonDatasetLink)
-    
-    model, history = prepare_model("Models/",vocab_size,X_train,y_train,X_test,y_test)
+    model, history = prepare_model("Models/Amazon/",vocab_size,X_train,y_train,X_test,y_test)
     
     loss, acc = model.evaluate(X_test, y_test, verbose=0)
     print('Test Accuracy: %f' % (acc*100))
-    
     plot(history)
+    
+    print("----------------------------")
+    
+    # Download the Yelp data set from txt file and preprocess it
+    X_train, X_test, y_train, y_test, vocab_size = prepare_data("Models/Yelp/",YelpDatasetLink,',')
+    
+    model, history = prepare_model("Models/Yelp/",vocab_size,X_train,y_train,X_test,y_test)
+    
+    loss, acc = model.evaluate(X_test, y_test, verbose=0)
+    print('Test Accuracy: %f' % (acc*100))
+    plot(history)
+    
+    print("----------------------------")
+
+    # Download the restaurants data set from txt file and preprocess it
+    X_train, X_test, y_train, y_test, vocab_size = prepare_data("Models/Restaurant/",RestaurantDatasetLink,',')
+    
+    model, history = prepare_model("Models/Restaurant/",vocab_size,X_train,y_train,X_test,y_test)
+    
+    loss, acc = model.evaluate(X_test, y_test, verbose=0)
+    print('Test Accuracy: %f' % (acc*100))
+    plot(history)
+    
+    print("----------------------------")
+    
+    # Download the hotels data set from folders and preprocess it
+    X_train, X_test, y_train, y_test, vocab_size = prepare_data("Models/Hotel/",HotelDatasetLink, "files")
+    
+    model, history = prepare_model("Models/Hotel/",vocab_size,X_train,y_train,X_test,y_test)
+    
+    loss, acc = model.evaluate(X_test, y_test, verbose=0)
+    print('Test Accuracy: %f' % (acc*100))
+    plot(history)
+    
+    print("----------------------------")
+
+    # Process data into feature and label arrays
 
     # print("Processing {} samples with {} attributes".format(len(frame.index), len(frame.columns)))
     # X_train, X_test, y_train, y_test = get_features_and_labels(frame)
