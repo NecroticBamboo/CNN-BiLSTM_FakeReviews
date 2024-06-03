@@ -270,13 +270,25 @@ def prepare_data(saveFolderPath, filePath, separator):
         vocab_size = np.fromfile(saveFolderPath+'vocab_size.dat', dtype=int)[0]
         
     else:
-        print(f"Loading data from {filePath}")
-        if separator == "files":
-            preprocessedData, labels = prepareHotelData()
-        elif separator == "tab":
-            preprocessedData, labels = loadData(filePath, '\t')
+        
+        if filePath=="All":
+            print("Loading data from all datasets")
+            amazonPreprocessedData, amazonLabels = loadData(AmazonDatasetLink, '\t')
+            yelpPreprocessedData, yelpLabels = loadData(YelpDatasetLink, separator)
+            restaurantsPreprocessedData, restaurantsLabels = loadData(RestaurantDatasetLink, separator)
+            hotelsPreprocessedData, hotelsLabels = prepareHotelData()
+            
+            preprocessedData = amazonPreprocessedData + yelpPreprocessedData + restaurantsPreprocessedData + hotelsPreprocessedData
+            labels = amazonLabels + yelpLabels + restaurantsLabels + hotelsLabels
+            
         else:
-            preprocessedData, labels = loadData(filePath, separator)
+            print(f"Loading data from {filePath}")
+            if separator == "files":
+                preprocessedData, labels = prepareHotelData()
+            elif separator == "tab":
+                preprocessedData, labels = loadData(filePath, '\t')
+            else:
+                preprocessedData, labels = loadData(filePath, separator)
 
         tokenisedData, vocab_size = tokeniseData(preprocessedData)
     
@@ -402,7 +414,7 @@ def get_features_and_labels(frame):
 def createModel(vocab_size, max_len):
     # define model
     
-    # CNN-BiLSTM???
+    # CNN-BiLSTM
     model = tf.keras.models.Sequential()
     model.add(tf.keras.layers.Input(shape=(max_len,)))
     model.add(tf.keras.layers.Embedding(input_dim=vocab_size, output_dim=100))
@@ -543,7 +555,8 @@ def plot(results):
 
 def plot(history):
     # list all data in history
-    print(history.keys())
+    # print(history.keys())
+    
     # summarize history for accuracy
     plt.plot(history['accuracy'])
     plt.plot(history['val_accuracy'])
@@ -604,6 +617,14 @@ if __name__ == '__main__':
     plot(history)
     
     print("----------------------------")
+
+    X_train, X_test, y_train, y_test, vocab_size = prepare_data("Models/All/","All", ",")
+    
+    model, history = prepare_model("Models/All/",vocab_size,X_train,y_train,X_test,y_test)
+    
+    loss, acc = model.evaluate(X_test, y_test, verbose=0)
+    print('Test Accuracy: %f' % (acc*100))
+    plot(history)
 
     # Process data into feature and label arrays
 
