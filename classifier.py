@@ -1,45 +1,32 @@
 '''
 This script performs the basic process for applying a machine learning
-algorithm to a dataset using Python libraries.
+algorithm to a datasets using Python libraries.
 
 The four steps are:
-   1. Download a dataset (using pandas)
-   2. Process the numeric data (using numpy)
-   3. Train and evaluate learners (using scikit-learn)
-   4. Plot and compare results (using matplotlib)
-
-
-The data is downloaded from URL, which is defined below. As is normal
-for machine learning problems, the nature of the source data affects
-the entire solution. When you change URL to refer to your own data, you
-will need to review the data processing steps to ensure they remain
-correct.
+   1. Download four datasets
+   2. Process the text data and tokenise it 
+   3. Train and evaluate CNN-BiLSTM model
+   4. Plot and compare results
 
 ============
-Example Data
+Datasets Used
 ============
-The example is from https://archive-beta.ics.uci.edu/ml/datasets/spambase
-It contains pre-processed metrics, such as the frequency of certain
-words and letters, from a collection of emails. A classification for
-each one indicating 'spam' or 'not spam' is in the final column.
-See the linked page for full details of the data set.
-
-This script uses three classifiers to predict the class of an email
-based on the metrics. These are not representative of modern spam
-detection systems.
+    1. Amazon dataset reviews include 21,000 reviews (10500 real and 10500 fake), 
+       with every review includes meta-information like item Id, reviewer name, item name, 
+       investigate buying (yes or no), rating value, and group label.
+    2. Yelp dataset consists of conventional false electronic product evaluations from four different cities 
+       in the United States (NY, Los Angeles, Miami, and San Francisco)
+    3. Restaurant dataset contains 110 restaurant reviews (55 fake, 55 real)
+    4. Hotel dataset contains 1600 hotel reviews (800 real and 800 fake) 
+       gathered from a single of most prominent hotel booking websites Trip Advisor
+    5. Combined datasets of all previous datasets
 '''
 
-# Remember to update the script for the new data when you change this URL
-# URL = "https://archive.ics.uci.edu/ml/machine-learning-databases/spambase/spambase.data"
+# Remember to update the script for the new data when you change these links
 AmazonDatasetLink = "Datasets/amazon_reviews.txt"
 YelpDatasetLink = "Datasets/review_data.csv"
 RestaurantDatasetLink = "Datasets/restaurant_reviews_anonymized.csv"
 HotelDatasetLink = "Datasets\op_spam_v1.4"
-
-# Uncomment this call when using matplotlib to generate images
-# rather than displaying interactive UI.
-#import matplotlib
-#matplotlib.use('Agg')
 
 from operator import indexOf
 from pandas import read_table
@@ -52,13 +39,8 @@ import os
 import pickle
 
 import tensorflow as tf
-# from tf.keras import layers, models
-# from tf.keras.preprocessing.text import Tokenizer
-# from tf.keras.preprocessing.sequence import pad_sequences
 
 import nltk
-# nltk.download('punkt')
-# nltk.download('stopwords')
 
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
@@ -74,71 +56,20 @@ except ImportError:
 
 # =====================================================================
 
-def download_data():
-    '''
-    Downloads the data for this script into a pandas DataFrame.
-    '''
-
-    # If your data is in an Excel file, install 'xlrd' and use
-    # pandas.read_excel instead of read_table
-    #from pandas import read_excel
-    #frame = read_excel(URL)
-
-    # If your data is in a private Azure blob, install 'azure-storage' and use
-    # BlockBlobService.get_blob_to_path() with read_table() or read_excel()
-    #from azure.storage.blob import BlockBlobService
-    #service = BlockBlobService(ACCOUNT_NAME, ACCOUNT_KEY)
-    #service.get_blob_to_path(container_name, blob_name, 'my_data.csv')
-    #frame = read_table('my_data.csv', ...
-
-    frame = read_table(
-        URL,
-        
-        # Uncomment if the file needs to be decompressed
-        #compression='gzip',
-        #compression='bz2',
-
-        # Specify the file encoding
-        # Latin-1 is common for data from US sources
-        encoding='latin-1',
-        #encoding='utf-8',  # UTF-8 is also common
-
-        # Specify the separator in the data
-        sep=',',            # comma separated values
-        #sep='\t',          # tab separated values
-        #sep=' ',           # space separated values
-
-        # Ignore spaces after the separator
-        skipinitialspace=True,
-
-        # Generate row labels from each row number
-        index_col=None,
-        #index_col=0,       # use the first column as row labels
-        #index_col=-1,      # use the last column as row labels
-
-        # Generate column headers row from each column number
-        header=None,
-        #header=0,          # use the first line as headers
-
-        # Use manual headers and skip the first row in the file
-        #header=0,
-        #names=['col1', 'col2', ...],
-    )
-
-    # Return a subset of the columns
-    #return frame[['col1', 'col4', ...]]
-
-    # Return the entire frame
-    return frame
-
 def loadData(path, separator):
     preprocessedData = []
     labels = []
     
     with open(path, encoding='utf-8') as f:
+        
+        # read file from path
         reader = csv.reader(f, delimiter = separator)
+        
+        # save indexes of label and text columns
         (labelIndex, textIndex) = getLinesIndexes(reader)
+        
         for line in reader:
+            # save review text and label
             (Text, Label) = parseReview(line, labelIndex, textIndex)
             
             preprocessedData.append(preProcessText(Text))
@@ -147,6 +78,9 @@ def loadData(path, separator):
             
 
 def prepareHotelData():
+    
+    # Hotel data saved as files in folders hense this method exists
+
     preprocessedData = []
     labels = []
     for subdir, dirs, files in os.walk(HotelDatasetLink):
@@ -155,6 +89,7 @@ def prepareHotelData():
             text=f.read()
             f.close()
             
+            # get label from folder name
             labelDirName = subdir.split('\\')[3]
             labelName = labelDirName.split('_')[0]
             if labelName == "deceptive":
@@ -214,10 +149,9 @@ def preProcessText(reviewText):
 
     return words
 
-
 # =====================================================================
 
-
+# Convert Yelp dataset .tsv file into .csv file. Only use once
 def convertYelpData():
     print("Conversion started")
     rx = re.compile( "^[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]+.*$")
@@ -252,9 +186,9 @@ def quote(s):
         return '"'+s.replace('"','""')+'"'
     return s
 
-
 # =====================================================================
 
+# If data already exist load it from folder, otherwise tokenise, split, and save it
 def prepare_data(saveFolderPath, filePath, separator):
     if os.path.isfile(saveFolderPath+"X_train.dat.npy") and \
        os.path.isfile(saveFolderPath+"X_test.dat.npy") and \
@@ -270,7 +204,7 @@ def prepare_data(saveFolderPath, filePath, separator):
         vocab_size = np.fromfile(saveFolderPath+'vocab_size.dat', dtype=int)[0]
         
     else:
-        
+        # Combine all datasets into one
         if filePath=="All":
             print("Loading data from all datasets")
             amazonPreprocessedData, amazonLabels = loadData(AmazonDatasetLink, '\t')
@@ -289,11 +223,14 @@ def prepare_data(saveFolderPath, filePath, separator):
                 preprocessedData, labels = loadData(filePath, '\t')
             else:
                 preprocessedData, labels = loadData(filePath, separator)
-
+        
+        # tokenise data to be used as input to ML model
         tokenisedData, vocab_size = tokeniseData(preprocessedData)
     
+        # split data
         X_train, X_test, y_train, y_test = splitData(0.2, tokenisedData, labels)
 
+        # save split data to folder
         np.array([vocab_size]).tofile(saveFolderPath+'vocab_size.dat')
         np.save(saveFolderPath+'X_train.dat', np.array(X_train, dtype='object'), allow_pickle=True)
         np.save(saveFolderPath+'X_test.dat' , np.array(X_test , dtype='object'), allow_pickle=True)
@@ -303,6 +240,7 @@ def prepare_data(saveFolderPath, filePath, separator):
     print(f"Vocabulary size: {vocab_size}, Sentence length: {len(X_train[0])}, Train set size: {len(X_train)}, Test set size: {len(X_test)}")
     return X_train, X_test, y_train, y_test, vocab_size
 
+# If trained model already exists load it from folder, otherwise create, train, and save it
 def prepare_model(saveFolderPath, vocab_size, X_train, y_train, X_test, y_test):
     if os.path.isfile(saveFolderPath+"model1.keras"):
         model = tf.keras.models.load_model(saveFolderPath+"model1.keras")
@@ -322,7 +260,6 @@ def prepare_model(saveFolderPath, vocab_size, X_train, y_train, X_test, y_test):
         
     return model, history
 
-
 def tokeniseData(dataSet):
     
     # vectorize text corpus into integers. Max size of vocabulary: 7000
@@ -333,6 +270,7 @@ def tokeniseData(dataSet):
     
     max_length = max([len(s) for s in seq])
     
+    # add padding so that all the data has the same size
     tokenisedData = tf.keras.preprocessing.sequence.pad_sequences(seq,padding='post', maxlen=max_length)
     
     vocab_size = len(tokenizer.word_index) + 1  # Adding 1 because of reserved 0 index
@@ -357,59 +295,7 @@ def splitData(testPercentage, data, labels):
     # print("X_train={}, X_test={}, y_train={}, y_test={}".format(len(X_train), len(X_test), len(y_train), len(y_test)))
     return X_train, X_test, y_train, y_test
 
-   
-def get_features_and_labels(frame):
-    '''
-    Transforms and scales the input data and returns numpy arrays for
-    training and testing inputs and targets.
-    '''
-
-    # Replace missing values with 0.0, or we can use
-    # scikit-learn to calculate missing values (below)
-    #frame[frame.isnull()] = 0.0
-
-    # Convert values to floats
-    arr = np.array(frame, dtype=np.float)
-
-    # Use the last column as the target value
-    X, y = arr[:, :-1], arr[:, -1]
-    # To use the first column instead, change the index value
-    #X, y = arr[:, 1:], arr[:, 0]
-    
-    # Use 80% of the data for training; test against the rest
-    
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
-
-    # sklearn.pipeline.make_pipeline could also be used to chain 
-    # processing and classification into a black box, but here we do
-    # them separately.
-    
-    # If values are missing we could impute them from the training data
-    #from sklearn.preprocessing import Imputer
-    #imputer = Imputer(strategy='mean')
-    #imputer.fit(X_train)
-    #X_train = imputer.transform(X_train)
-    #X_test = imputer.transform(X_test)
-    
-    # Normalize the attribute values to mean=0 and variance=1
-    from sklearn.preprocessing import StandardScaler
-    scaler = StandardScaler()
-    # To scale to a specified range, use MinMaxScaler
-    #from sklearn.preprocessing import MinMaxScaler
-    #scaler = MinMaxScaler(feature_range=(0, 1))
-    
-    # Fit the scaler based on the training data, then apply the same
-    # scaling to both training and test sets.
-    scaler.fit(X_train)
-    X_train = scaler.transform(X_train)
-    X_test = scaler.transform(X_test)
-
-    # Return the training and test sets
-    return X_train, X_test, y_train, y_test
-
-
 # =====================================================================
-
 
 def createModel(vocab_size, max_len):
     # define model
@@ -447,111 +333,7 @@ def createModel(vocab_size, max_len):
     
     return model
 
-
-def evaluate_classifier(X_train, X_test, y_train, y_test):
-    '''
-    Run multiple times with different classifiers to get an idea of the
-    relative performance of each configuration.
-
-    Returns a sequence of tuples containing:
-        (title, precision, recall)
-    for each learner.
-    '''
-
-    # Import some classifiers to test
-    from sklearn.svm import LinearSVC, NuSVC
-    from sklearn.ensemble import AdaBoostClassifier
-
-    # We will calculate the P-R curve for each classifier
-    from sklearn.metrics import precision_recall_curve, f1_score
-    
-    # Here we create classifiers with default parameters. These need
-    # to be adjusted to obtain optimal performance on your data set.
-    
-    # Test the linear support vector classifier
-    classifier = LinearSVC(C=1)
-    # Fit the classifier
-    classifier.fit(X_train, y_train)
-    score = f1_score(y_test, classifier.predict(X_test))
-    # Generate the P-R curve
-    y_prob = classifier.decision_function(X_test)
-    precision, recall, _ = precision_recall_curve(y_test, y_prob)
-    # Include the score in the title
-    yield 'Linear SVC (F1 score={:.3f})'.format(score), precision, recall
-
-    # Test the Nu support vector classifier
-    classifier = NuSVC(kernel='rbf', nu=0.5, gamma=1e-3)
-    # Fit the classifier
-    classifier.fit(X_train, y_train)
-    score = f1_score(y_test, classifier.predict(X_test))
-    # Generate the P-R curve
-    y_prob = classifier.decision_function(X_test)
-    precision, recall, _ = precision_recall_curve(y_test, y_prob)
-    # Include the score in the title
-    yield 'NuSVC (F1 score={:.3f})'.format(score), precision, recall
-
-    # Test the Ada boost classifier
-    classifier = AdaBoostClassifier(n_estimators=50, learning_rate=1.0, algorithm='SAMME.R')
-    # Fit the classifier
-    classifier.fit(X_train, y_train)
-    score = f1_score(y_test, classifier.predict(X_test))
-    # Generate the P-R curve
-    y_prob = classifier.decision_function(X_test)
-    precision, recall, _ = precision_recall_curve(y_test, y_prob)
-    # Include the score in the title
-    yield 'Ada Boost (F1 score={:.3f})'.format(score), precision, recall
-
 # =====================================================================
-
-
-def plot(results):
-    '''
-    Create a plot comparing multiple learners.
-
-    `results` is a list of tuples containing:
-        (title, precision, recall)
-    
-    All the elements in results will be plotted.
-    '''
-
-    # Plot the precision-recall curves
-
-    fig = plt.figure(figsize=(6, 6))
-    fig.canvas.set_window_title('Classifying data from ' + URL)
-
-    for label, precision, recall in results:
-        plt.plot(recall, precision, label=label)
-
-    plt.title('Precision-Recall Curves')
-    plt.xlabel('Precision')
-    plt.ylabel('Recall')
-    plt.legend(loc='lower left')
-
-    # Let matplotlib improve the layout
-    plt.tight_layout()
-
-    # ==================================
-    # Display the plot in interactive UI
-    plt.show()
-
-    # To save the plot to an image file, use savefig()
-    #plt.savefig('plot.png')
-
-    # Open the image file with the default image viewer
-    #import subprocess
-    #subprocess.Popen('plot.png', shell=True)
-
-    # To save the plot to an image in memory, use BytesIO and savefig()
-    # This can then be written to any stream-like object, such as a
-    # file or HTTP response.
-    #from io import BytesIO
-    #img_stream = BytesIO()
-    #plt.savefig(img_stream, fmt='png')
-    #img_bytes = img_stream.getvalue()
-    #print('Image is {} bytes - {!r}'.format(len(img_bytes), img_bytes[:8] + b'...'))
-
-    # Closing the figure allows matplotlib to release the memory used.
-    plt.close()
 
 def plot(history):
     # list all data in history
@@ -567,7 +349,6 @@ def plot(history):
     plt.show()
 
 # =====================================================================
-
 
 if __name__ == '__main__':
     
@@ -618,6 +399,7 @@ if __name__ == '__main__':
     
     print("----------------------------")
 
+    # Download all datasets from folders, combine them into single dataset, and preprocess it
     X_train, X_test, y_train, y_test, vocab_size = prepare_data("Models/All/","All", ",")
     
     model, history = prepare_model("Models/All/",vocab_size,X_train,y_train,X_test,y_test)
@@ -625,16 +407,3 @@ if __name__ == '__main__':
     loss, acc = model.evaluate(X_test, y_test, verbose=0)
     print('Test Accuracy: %f' % (acc*100))
     plot(history)
-
-    # Process data into feature and label arrays
-
-    # print("Processing {} samples with {} attributes".format(len(frame.index), len(frame.columns)))
-    # X_train, X_test, y_train, y_test = get_features_and_labels(frame)
-
-    # Evaluate multiple classifiers on the data
-    # print("Evaluating classifiers")
-    # results = list(evaluate_classifier(X_train, X_test, y_train, y_test))
-
-    # Display the results
-    # print("Plotting the results")
-    # plot(results)
